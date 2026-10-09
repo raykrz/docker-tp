@@ -1,8 +1,10 @@
-- name: Run front container
-  docker_container:
+---
+- name: Launch front
+  community.docker.docker_container:
     name: front
-    image: raykrz/devops-front
-    networks:
-      - name: app-network
+    image: "{{ docker_hub_user }}/tp-devops-front:latest"
     pull: true
     state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: app-network

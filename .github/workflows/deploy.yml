@@ -1,15 +1,18 @@
+# Workflow 3: deploy to the server with Ansible
+# Starts only when "Build and Push Docker Images" has finished, and only if it succeeded
 name: Deploy
 
 on:
   workflow_run:
+    # Must match EXACTLY the "name:" of workflow 2
     workflows: ["Build and Push Docker Images"]
-    types:
-      - completed
+    types: [completed]
+    branches: [main]
 
 jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,12 +23,23 @@ jobs:
       - name: Install community.docker collection
         run: ansible-galaxy collection install community.docker
 
-      - name: Write SSH key
+      # Private key -> temp file, server fingerprint -> known_hosts (both from secrets)
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
-          chmod 400 id_rsa
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
 
+      # --private-key overrides the local path written in the inventory
       - name: Run Ansible playbook
+        working-directory: ansible
         run: |
-          cd ansible
-          ansible-playbook -i inventories/setup.yml playbook.yml
+          ansible-playbook \
+            -i inventories/setup.yml \
+            playbook.yml \
+            --private-key "$RUNNER_TEMP/deploy_key"
