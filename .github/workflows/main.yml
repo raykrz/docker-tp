@@ -31,3 +31,42 @@ jobs:
       # (testcontainers starts a temporary Postgres, Docker is already installed on the runner)
       - name: Build and test with Maven
         run: mvn clean verify --file ./simple-api/pom.xml
+
+  # Job 2: build the 3 Docker images and push them to Docker Hub
+  build-and-push-docker-image:
+    # Wait for test-backend to succeed first; if tests fail, this job doesn't run
+    needs: test-backend
+    runs-on: ubuntu-24.04
+    steps:
+      # Download the code again (each job gets a fresh computer)
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Log in to Docker Hub using the secrets (never written in plain text)
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login --username ${{ secrets.DOCKERHUB_USERNAME }} --password-stdin
+
+      # Build the backend image from simple-api/Dockerfile
+      - name: Build image and push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./simple-api
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-simple-api:latest
+          # Build on every branch, but only PUSH when we're on main
+          push: ${{ github.ref == 'refs/heads/main' }}
+
+      # Same for the database
+      - name: Build image and push database
+        uses: docker/build-push-action@v6
+        with:
+          context: ./database
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-database:latest
+          push: ${{ github.ref == 'refs/heads/main' }}
+
+      # Same for httpd
+      - name: Build image and push httpd
+        uses: docker/build-push-action@v6
+        with:
+          context: ./httpd
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/tp-devops-httpd:latest
+          push: ${{ github.ref == 'refs/heads/main' }}
