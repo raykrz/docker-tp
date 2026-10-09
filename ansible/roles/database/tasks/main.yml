@@ -1,0 +1,16 @@
+---
+- name: Launch database
+  community.docker.docker_container:
+    name: database
+    image: "{{ docker_hub_user }}/tp-devops-database:latest"
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: app-network
+    env:
+      POSTGRES_DB: "{{ db_name }}"
+      POSTGRES_USER: "{{ db_user }}"
+      POSTGRES_PASSWORD: "{{ db_password }}"
+    volumes:
+      - db-data:/var/lib/postgresql/data

@@ -1,0 +1,15 @@
+---
+- name: Launch backend
+  community.docker.docker_container:
+    name: backend
+    image: "{{ docker_hub_user }}/tp-devops-simple-api:latest"
+    pull: true
+    state: started
+    restart_policy: unless-stopped
+    networks:
+      - name: app-network
+    env:
+      DB_HOST: database
+      DB_NAME: "{{ db_name }}"
+      DB_USER: "{{ db_user }}"
+      DB_PASSWORD: "{{ db_password }}"
