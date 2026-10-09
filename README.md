@@ -9,6 +9,7 @@
 ## Project structure
 
 ```
+
 docker-tp/
 ├── database/
 │   ├── Dockerfile
