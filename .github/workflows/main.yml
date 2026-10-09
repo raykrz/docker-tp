@@ -29,12 +29,14 @@ jobs:
 
       # Compile + run unit and integration tests
       # (testcontainers starts a temporary Postgres, Docker is already installed on the runner)
-      # Build, run tests, and send the code analysis to SonarCloud
+      # then send the code analysis to SonarCloud.
+      # Project key and organization come from repository variables (Settings > Secrets and variables > Actions > Variables);
+      # the token stays a secret.
       - name: Build, test and analyze with SonarCloud
         run: >
           mvn -B verify sonar:sonar
-          -Dsonar.projectKey=<your-project-key>
-          -Dsonar.organization=<your-organization-key>
+          -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+          -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
           -Dsonar.host.url=https://sonarcloud.io
           -Dsonar.token=${{ secrets.SONAR_TOKEN }}
           --file ./simple-api/pom.xml
