@@ -29,8 +29,15 @@ jobs:
 
       # Compile + run unit and integration tests
       # (testcontainers starts a temporary Postgres, Docker is already installed on the runner)
-      - name: Build and test with Maven
-        run: mvn clean verify --file ./simple-api/pom.xml
+      # Build, run tests, and send the code analysis to SonarCloud
+      - name: Build, test and analyze with SonarCloud
+        run: >
+          mvn -B verify sonar:sonar
+          -Dsonar.projectKey=<your-project-key>
+          -Dsonar.organization=<your-organization-key>
+          -Dsonar.host.url=https://sonarcloud.io
+          -Dsonar.token=${{ secrets.SONAR_TOKEN }}
+          --file ./simple-api/pom.xml
 
   # Job 2: build the 3 Docker images and push them to Docker Hub
   build-and-push-docker-image:
