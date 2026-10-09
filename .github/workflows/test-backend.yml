@@ -1,0 +1,39 @@
+# Workflow 1: build, test and analyze the backend
+# Runs on pushes to main and develop, and on pull requests
+name: Test Backend
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+jobs:
+  test-backend:
+    # Fresh Ubuntu machine provided by GitHub
+    runs-on: ubuntu-24.04
+    steps:
+      # Download the repo code
+      - uses: actions/checkout@v4
+
+      # Install Java 21 and cache Maven dependencies
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Compile, run unit + integration tests (testcontainers starts a temporary Postgres),
+      # then send the code analysis to SonarCloud.
+      # Project key / organization = repository variables, token = secret.
+      - name: Build, test and analyze with SonarCloud
+        run: >
+          mvn -B verify
+          org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
+          -Dsonar.projectKey=${{ vars.SONAR_PROJECT_KEY }}
+          -Dsonar.organization=${{ vars.SONAR_ORGANIZATION }}
+          -Dsonar.host.url=https://sonarcloud.io
+          -Dsonar.token=${{ secrets.SONAR_TOKEN }}
+          --file ./simple-api/pom.xml
