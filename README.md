@@ -27,7 +27,7 @@ docker-tp/
 │   ├── httpd.conf
 │   └── index.html
 ├── docker-compose.yml
-├── .env            (not committed)
+├── .env            
 └── README.md
 ```
 
