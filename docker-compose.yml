@@ -1,0 +1,51 @@
+services:
+  database:
+    build: ./database                 # use database/Dockerfile
+    container_name: database
+    environment:                      # values come from the .env file
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data   # keep data between restarts
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:                      # "is Postgres ready yet?"
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+    # no "ports": the DB is NOT reachable from outside, only from the network
+
+  backend:
+    build: ./simple-api
+    container_name: backend
+    environment:
+      DB_HOST: database
+      DB_NAME: ${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+    networks:
+      - app-network
+    depends_on:
+      database:
+        condition: service_healthy    # wait until DB is really ready
+    restart: unless-stopped
+    # no "ports" either: only httpd talks to it
+
+  httpd:
+    build: ./httpd
+    container_name: httpd
+    ports:
+      - "80:80"                       # the ONLY door to the outside
+    networks:
+      - app-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  app-network:
+
+volumes:
+  db-data:
