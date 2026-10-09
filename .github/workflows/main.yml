@@ -1,0 +1,33 @@
+# Name shown in the GitHub "Actions" tab
+name: CI devops 2025
+
+# WHEN the pipeline runs
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+# WHAT the pipeline does
+jobs:
+  # Job 1: build the backend and run its tests
+  test-backend:
+    # GitHub gives us a fresh Ubuntu computer for this job
+    runs-on: ubuntu-24.04
+    steps:
+      # Download our repo code onto that computer
+      - uses: actions/checkout@v4
+
+      # Install Java 21 (Temurin) and cache Maven downloads to go faster next time
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # Compile + run unit and integration tests
+      # (testcontainers starts a temporary Postgres, Docker is already installed on the runner)
+      - name: Build and test with Maven
+        run: mvn clean verify --file ./simple-api/pom.xml
