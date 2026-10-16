@@ -1,352 +1,109 @@
-# TP DevOps – Part 01: Docker
+# TP DevOps
 
-3-tier application running in Docker:
+Rayane Karaouzene
 
-- **HTTP server** (Apache httpd) – reverse proxy, the only entry point (port 80)
-- **Backend API** (Spring Boot, Java 21)
-- **Database** (PostgreSQL 17)
+The app has 4 parts: a PostgreSQL database, a Spring Boot API, a Vue.js front and an Apache httpd reverse proxy.
 
-## Project structure
+It is deployed here: http://rayane.karaouzene.takima.school
 
-```
-docker-tp/
-├── database/
-│   ├── Dockerfile
-│   └── sql/
-│       ├── 01-CreateScheme.sql
-│       └── 02-InsertData.sql
-├── java-hello/
-│   ├── Dockerfile
-│   └── Main.java
-├── simple-api/
-│   ├── Dockerfile
-│   ├── pom.xml
-│   └── src/
-├── httpd/
-│   ├── Dockerfile
-│   ├── httpd.conf
-│   └── index.html
-├── docker-compose.yml
-├── .env            
-└── README.md
-```
+## Folders
 
-One folder per image, each with its own `Dockerfile`.
+- `database/` : database Dockerfile and SQL scripts
+- `simple-api/` : backend API
+- `httpd/` : Apache server and its config (`httpd.conf`)
+- `front/` : front
+- `java-hello/` : hello world test from TP1
+- `docker-compose.yml` : runs everything locally
+- `.github/workflows/` : GitHub Actions workflows
+- `ansible/` : Ansible inventory, playbook and roles
 
----
 
-## 1. Database
+# TP1 - Docker
 
-### Dockerfile
+### 1-1 For which reason is it better to run the container with a flag -e to give the environment variables rather than put them directly in the Dockerfile?
 
-```dockerfile
-# Official Postgres image (lightweight alpine version)
-FROM postgres:17.2-alpine
+The Dockerfile is pushed on git, so a password written inside would be visible to everyone. With -e the password is only given when the container starts.
 
-# Every .sql file in /docker-entrypoint-initdb.d runs automatically,
-# in alphabetical order, the first time the database starts
-COPY sql/ /docker-entrypoint-initdb.d/
-```
+### 1-2 Why do we need a volume to be attached to our postgres container?
 
-- `01-CreateScheme.sql` creates the `departments` and `students` tables.
-- `02-InsertData.sql` inserts the initial data.
-- The scripts only run when the data volume is empty (first start).
+When a container is deleted its data is deleted too. The volume keeps the database data outside the container.
 
-### Commands
+### 1-3 Document your database container essentials: commands and Dockerfile
 
-```bash
-# Create a network so containers can reach each other by name
-docker network create app-network
+The Dockerfile is in `database/Dockerfile`, it copies the SQL scripts from `database/sql/` that create and fill the tables. The container runs on the `app-network` network with the env variables and the `db-data` volume.
 
-# Build the image
-docker build -t tp-database ./database
+### 1-4 Why do we need a multistage build? And explain each step of this dockerfile.
 
-# Run the container
-docker run -d \
-  --name database \
-  --network app-network \
-  -e POSTGRES_DB=db \
-  -e POSTGRES_USER=usr \
-  -e POSTGRES_PASSWORD=pwd \
-  -v db-data:/var/lib/postgresql/data \
-  tp-database
-
-# Adminer (web UI to inspect the database) on http://localhost:8090
-docker run -d -p 8090:8080 --network app-network --name adminer adminer
-```
-
-| Flag | Meaning |
-|---|---|
-| `-d` | Run in the background (detached) |
-| `--name` | Container name, also used as hostname on the network |
-| `--network` | Attach the container to `app-network` |
-| `-e` | Set an environment variable |
-| `-v` | Mount a volume to persist data |
-| `-p host:container` | Expose a container port on the host |
-
-### 1-1 Why pass environment variables with `-e` instead of writing them in the Dockerfile?
-
-The Dockerfile is committed to Git, so any password written in it is visible to anyone with access to the repository, and it gets baked into the image layers. Passing them with `-e` at runtime keeps secrets out of the code and the image. The same image can then also be reused in different environments (dev, prod) with different credentials.
-
-### 1-2 Why do we need a volume attached to the Postgres container?
-
-A container's filesystem is temporary: when the container is deleted, its data is lost. The volume `db-data` stores the database files (`/var/lib/postgresql/data`) outside the container, on the host. The data survives when the container is removed and recreated.
-
-Test performed: `docker rm -f database`, then the same `docker run` again. The data was still present in Adminer.
-
-### 1-3 Database container essentials
-
-See the Dockerfile and commands above: create network → build image → run with env variables, network and volume.
-
----
-
-## 2. Backend API
-
-### 2.1 Java Hello World
-
-```dockerfile
-# Only a Java Runtime (JRE) is needed to run compiled code
-FROM eclipse-temurin:21-jre-alpine
-# Copy the compiled bytecode
-COPY Main.class .
-# Run it
-CMD ["java", "Main"]
-```
-
-```bash
-javac Main.java
-docker build -t java-hello ./java-hello
-docker run --rm java-hello      # prints "Hello World!"
-```
-
-### 2.2 Spring Boot API – multistage build
-
-```dockerfile
-# ---- Stage 1: BUILD ----
-# JDK image: contains the compiler needed to build the app
-FROM eclipse-temurin:21-jdk-alpine AS myapp-build
-# Variable holding the app directory
-ENV MYAPP_HOME=/opt/myapp
-# Work inside this directory
-WORKDIR $MYAPP_HOME
-# Install Maven (build tool)
-RUN apk add --no-cache maven
-# Copy the project definition and the source code
-COPY pom.xml .
-COPY src ./src
-# Compile and package the app into a .jar (tests skipped for speed)
-RUN mvn package -DskipTests
-
-# ---- Stage 2: RUN ----
-# JRE image: only what is needed to run Java, much smaller
-FROM eclipse-temurin:21-jre-alpine
-ENV MYAPP_HOME=/opt/myapp
-WORKDIR $MYAPP_HOME
-# Copy only the built .jar from stage 1
-COPY --from=myapp-build $MYAPP_HOME/target/*.jar $MYAPP_HOME/myapp.jar
-# Start the application
-ENTRYPOINT ["java", "-jar", "myapp.jar"]
-```
-
-### 1-4 Why do we need a multistage build?
-
-Building the app requires a full JDK and Maven, which are large, but running it only requires a JRE. With a multistage build:
-
-- **Stage 1** uses the JDK and Maven to compile the code and produce the `.jar`.
-- **Stage 2** starts from a small JRE image and only copies the `.jar`.
-
-The final image is much lighter. It is also more secure, because it contains no compiler, no Maven and no source code. And the build is reproducible: nobody needs Java or Maven installed on their machine, Docker does everything.
-
-### 2.3 Connection to the database
-
-In `simple-api/src/main/resources/application.yml`:
-
-```yaml
-  datasource:
-    url: jdbc:postgresql://${DB_HOST:database}:5432/${DB_NAME:db}
-    username: ${DB_USER:usr}
-    password: ${DB_PASSWORD:pwd}
-```
-
-Values come from environment variables, with defaults after the `:`. The hostname `database` works because both containers are on `app-network`, where Docker resolves container names automatically.
-
-```bash
-docker build -t tp-backend ./simple-api
-docker run -d --name backend --network app-network -p 8080:8080 tp-backend
-```
-
-Test: `http://localhost:8080/departments/IRC/students` returns the students of the IRC department in JSON.
-
----
-
-## 3. HTTP server
-
-### Dockerfile
-
-```dockerfile
-# Official Apache image
-FROM httpd:2.4
-# Landing page
-COPY index.html /usr/local/apache2/htdocs/
-# Custom configuration (reverse proxy)
-COPY httpd.conf /usr/local/apache2/conf/httpd.conf
-```
-
-### Getting the default configuration
-
-```bash
-docker cp httpd:/usr/local/apache2/conf/httpd.conf ./httpd/httpd.conf
-```
-
-### Reverse proxy configuration (added at the end of `httpd.conf`)
-
-```apache
-LoadModule proxy_module modules/mod_proxy.so
-LoadModule proxy_http_module modules/mod_proxy_http.so
-
-<VirtualHost *:80>
-ProxyPreserveHost On
-ProxyPass / http://backend:8080/
-ProxyPassReverse / http://backend:8080/
-</VirtualHost>
-```
-
-Every request on port 80 is forwarded to the `backend` container on port 8080.
-
-### Useful commands
-
-- `docker stats`: live CPU and memory usage of containers
-- `docker inspect <container>`: full configuration of a container (network, IP, mounts…)
-- `docker logs <container>`: output of the container
+We need the JDK and Maven to build the app but only the JRE to run it. In `simple-api/Dockerfile`, the first stage builds the .jar and the second stage only copies the .jar into a small JRE image.
 
 ### 1-5 Why do we need a reverse proxy?
 
-- **Single entry point:** only port 80 is exposed, while the backend and database stay hidden from the outside.
-- **Security:** clients never talk directly to the backend.
-- **Flexibility:** it can later handle HTTPS, load balancing across several backends, or serve a frontend, without changing the backend.
-
----
-
-## 4. Docker Compose
-
-### `.env` (not committed – listed in `.gitignore`)
-
-```
-POSTGRES_DB=db
-POSTGRES_USER=usr
-POSTGRES_PASSWORD=pwd
-```
-
-### `docker-compose.yml`
-
-```yaml
-services:
-  database:
-    build: ./database                 # build from database/Dockerfile
-    container_name: database
-    environment:                      # credentials read from .env
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - db-data:/var/lib/postgresql/data   # persist data
-    networks:
-      - app-network
-    restart: unless-stopped
-    healthcheck:                      # checks Postgres is ready to accept connections
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      retries: 10
-    # no ports exposed: only reachable inside app-network
-
-  backend:
-    build: ./simple-api
-    container_name: backend
-    environment:                      # injected into application.yml
-      DB_HOST: database
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-    networks:
-      - app-network
-    depends_on:
-      database:
-        condition: service_healthy    # start only once the DB is ready
-    restart: unless-stopped
-    # no ports exposed: only httpd talks to it
-
-  httpd:
-    build: ./httpd
-    container_name: httpd
-    ports:
-      - "80:80"                       # the only port open to the host
-    networks:
-      - app-network
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-networks:
-  app-network:
-
-volumes:
-  db-data:
-```
+So there is only one entry point (port 80) and the backend and database are not reachable from outside. The config is at the end of `httpd/httpd.conf`.
 
 ### 1-6 Why is docker-compose so important?
 
-It describes the whole application (images, configuration, networks, volumes, dependencies) in one versioned file. One command starts, stops or rebuilds everything in the right order, instead of many manual `docker build` and `docker run` commands. That makes the setup reproducible for every developer and environment.
+It describes all the containers in one file and starts them with one command, in the right order.
 
-### 1-7 Most important docker-compose commands
+### 1-7 Document docker-compose most important commands
 
-| Command | Description |
-|---|---|
-| `docker compose up -d --build` | Build the images and start all services in the background |
-| `docker compose ps` | List the running services |
-| `docker compose logs -f <service>` | Follow the logs of a service |
-| `docker compose stop` | Stop the services without removing them |
-| `docker compose down` | Stop and remove the containers and network (volumes are kept) |
-| `docker compose down -v` | Same, and also delete the volumes (data reset) |
-| `docker compose config` | Validate and display the final configuration |
+`docker compose up -d --build` to build and start, `docker compose ps` to see the containers, `docker compose logs -f` to see logs, `docker compose down` to stop and remove.
 
-### 1-8 docker-compose file explained
+### 1-8 Document your docker-compose file
 
-- **Environment variables:** credentials are not hardcoded; they come from a `.env` file that is not committed.
-- **Volume `db-data`:** the database data persists across restarts.
-- **Network `app-network`:** services communicate by name (`database`, `backend`).
-- **Ports:** only `httpd` exposes a port (80). The backend and database are not reachable from the host.
-- **`depends_on` + `healthcheck`:** the backend waits until Postgres is actually ready, and httpd starts after the backend.
-- **`restart: unless-stopped`:** containers restart automatically if they crash.
+`docker-compose.yml` starts the database, backend and httpd on the same network. Only httpd has a port open, passwords come from a `.env` file that is not pushed, and the backend waits for the database to be ready.
 
-Result: `http://localhost/departments/IRC/students` works through the reverse proxy.
+### 1-9 Document your publication commands and published images in dockerhub
 
----
+I used `docker tag` then `docker push`. My images are `raykrz/tp-devops-database`, `raykrz/tp-devops-simple-api`, `raykrz/tp-devops-httpd` and `raykrz/tp-devops-front`.
 
-## 5. Publish
+### 1-10 Why do we put our images into an online repo?
 
-```bash
-# Log in to Docker Hub
-docker login
+So the server or other people can download and run the same image without building it again.
 
-# Tag images with the Docker Hub username and a version
-docker tag docker-tp-database USERNAME/tp-devops-database:1.0
-docker tag docker-tp-backend  USERNAME/tp-devops-simple-api:1.0
-docker tag docker-tp-httpd    USERNAME/tp-devops-httpd:1.0
 
-# Push them to Docker Hub
-docker push USERNAME/tp-devops-database:1.0
-docker push USERNAME/tp-devops-simple-api:1.0
-docker push USERNAME/tp-devops-httpd:1.0
-```
+# TP2 - GitHub Actions
 
-### 1-9 Published images
+There are 3 workflows in `.github/workflows/`: `test-backend.yml` runs the tests and SonarCloud, `build-push.yml` pushes the images if the tests passed on main, and `deploy.yml` deploys on the server if the push worked.
 
-| Image | Tag |
-|---|---|
-| `USERNAME/tp-devops-database` | 1.0 |
-| `USERNAME/tp-devops-simple-api` | 1.0 |
-| `USERNAME/tp-devops-httpd` | 1.0 |
+### 2-1 What are testcontainers?
 
-### 1-10 Why do we put our images into an online repository?
+A Java library that starts real Docker containers during tests. Here it starts a temporary Postgres database for the integration tests.
 
-So that other team members, servers or CI/CD pipelines can download (`docker pull`) and run exactly the same image without rebuilding it from source. It also keeps versioned history through tags (1.0, 1.1…), which makes it possible to deploy or roll back to a specific version.
+### 2-2 For what purpose do we need to use secured variables?
+
+The workflow files are public in the repo, so passwords and tokens must be stored as GitHub secrets to stay hidden.
+
+### 2-3 Why did we put needs: build-and-test-backend on this job? Maybe try without this and you will see!
+
+Without it the jobs run at the same time, so images would be pushed even if the tests fail. I split the jobs into separate workflows, so I used `workflow_run` with a success check instead.
+
+### 2-4 For what purpose do we need to push docker images?
+
+So the server can download the tested image directly without needing the code.
+
+### Quality gate
+
+SonarCloud runs in `test-backend.yml` and uses the default "Sonar way" quality gate. The token is a GitHub secret.
+
+
+# TP3 - Ansible
+
+### 3-1 Document your inventory and base commands
+
+The inventory is `ansible/inventories/setup.yml`, it has my server in the `prod` group, the `admin` user, the SSH key path and the variables used by the roles. I used `ansible all -i inventories/setup.yml -m ping` to test the connection and `-m setup` to get info about the server.
+
+### 3-2 Document your playbook
+
+`ansible/playbook.yml` runs the roles in order: docker, network, database, app, front, proxy. Each role is in `ansible/roles/<name>/tasks/main.yml`.
+
+### 3-3 Document your docker_container tasks configuration
+
+Each container has a name, an image from my Docker Hub, `pull: true` to get the newest image and is on `app-network`. The database also has env variables and a volume, the backend has the database env variables, and only httpd opens port 80.
+
+### Is it really safe to deploy automatically every new image on the hub? explain. What can I do to make it more secure?
+
+No, if someone gets my Docker Hub token they can push a bad image that goes directly to production. To make it safer we can ask for a manual approval before deploying, use version tags instead of `latest`, and encrypt the passwords with Ansible Vault.
+
+### Front
+
+The front is in `front/` and httpd sends `/api/` to the backend and the rest to the front (see `httpd/httpd.conf`). It is built and deployed by the same pipeline as the other images.
